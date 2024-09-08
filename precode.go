@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,14 +17,15 @@ import (
 func Generator(ctx context.Context, ch chan<- int64, fn func(int64)) {
 	// 1. Функция Generator
 	defer close(ch)
-	var i int64
+	var i int64 = 1
+
 	for {
-		i++
 		select {
 		case <-ctx.Done():
 			return
 		case ch <- i:
 			fn(i)
+			i++
 		}
 	}
 }
@@ -51,11 +53,13 @@ func main() {
 
 	// генерируем числа, считая параллельно их количество и сумму
 	go Generator(ctx, chIn, func(i int64) {
-		inputSum += i
-		inputCount++
+		// inputSum += i
+		// inputCount++
+		atomic.AddInt64(&inputSum, i)
+		atomic.AddInt64(&inputCount, 1)
 	})
 
-	const NumOut = 5 // количество обрабатывающих горутин и каналов
+	const NumOut = 15 // количество обрабатывающих горутин и каналов
 	// outs — слайс каналов, куда будут записываться числа из chIn
 	outs := make([]chan int64, NumOut)
 	for i := 0; i < NumOut; i++ {
@@ -98,21 +102,38 @@ func main() {
 		count++
 		sum += num
 	}
-	fmt.Println("Количество чисел", inputCount, count)
-	fmt.Println("Сумма чисел", inputSum, sum)
+	fmt.Println("Количество чисел", atomic.LoadInt64(&inputCount), count)
+	fmt.Println("Сумма чисел", atomic.LoadInt64(&inputSum), sum)
 	fmt.Println("Разбивка по каналам", amounts)
 
-	// проверка результатов
-	if inputSum != sum {
+	if atomic.LoadInt64(&inputSum) != sum {
 		log.Fatalf("Ошибка: суммы чисел не равны: %d != %d\n", inputSum, sum)
 	}
-	if inputCount != count {
+	if atomic.LoadInt64(&inputCount) != count {
 		log.Fatalf("Ошибка: количество чисел не равно: %d != %d\n", inputCount, count)
 	}
 	for _, v := range amounts {
-		inputCount -= v
+		atomic.AddInt64(&inputCount, -v)
 	}
-	if inputCount != 0 {
+	if atomic.LoadInt64(&inputCount) != 0 {
 		log.Fatalf("Ошибка: разделение чисел по каналам неверное\n")
 	}
 }
+
+// 	fmt.Println("Количество чисел", inputCount, count)
+// 	fmt.Println("Сумма чисел", inputSum, sum)
+// 	fmt.Println("Разбивка по каналам", amounts)
+// 	// проверка результатов
+// 	if inputSum != sum {
+// 		log.Fatalf("Ошибка: суммы чисел не равны: %d != %d\n", inputSum, sum)
+// 	}
+// 	if inputCount != count {
+// 		log.Fatalf("Ошибка: количество чисел не равно: %d != %d\n", inputCount, count)
+// 	}
+// 	for _, v := range amounts {
+// 		inputCount -= v
+// 	}
+// 	if inputCount != 0 {
+// 		log.Fatalf("Ошибка: разделение чисел по каналам неверное\n")
+// 	}
+// }
